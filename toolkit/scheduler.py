@@ -35,6 +35,7 @@ class DecayingCosineAnnealingWarmRestarts(_LRScheduler):
         self.T_0 = T_0
         self.T_i = T_0
         self.T_mult = T_mult
+        self._initial_eta_min = eta_min  # Store initial eta_min
         self.eta_min = eta_min
         self.T_cur = last_epoch
         self.restart_decay = restart_decay
@@ -50,6 +51,8 @@ class DecayingCosineAnnealingWarmRestarts(_LRScheduler):
             self._initial_base_lrs = list(self.base_lrs)
         factor = self.restart_decay ** self._cycle
         self.base_lrs = [base * factor for base in self._initial_base_lrs]
+        # Decay eta_min with the same factor
+        self.eta_min = self._initial_eta_min * factor
         for group, base in zip(self.optimizer.param_groups, self.base_lrs):
             group["initial_lr"] = base
 
