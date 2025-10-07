@@ -177,10 +177,25 @@ def visualize_scheduler():
                 eta_min=eta_min, restart_decay=config['restart_decay']
             )
 
+        # 为 warmup 配置计算更合适的步数，确保最后一个周期能跑完
+        local_total_steps = total_steps
+        warmup_steps = config.get('warmup_steps', 0)
+        if warmup_steps:
+            cycles_to_plot = 3  # 展示 3 个完整 cosine 周期
+            T_0 = int(config['T_0'])
+            T_mult = int(config['T_mult'])
+            period = T_0
+            needed = warmup_steps
+            for _ in range(cycles_to_plot):
+                needed += period
+                period *= T_mult
+            local_total_steps = max(total_steps, needed)
+
         lrs = []
-        for i in range(total_steps):
-            sch.step()
+        for i in range(local_total_steps):
+            # 先记录再 step，避免图尾显示下一周期的“跳升”
             lrs.append(opt.param_groups[0]['lr'])
+            sch.step()
         
         ax.plot(lrs, linewidth=2)
         ax.set_xlabel('Training Steps')
