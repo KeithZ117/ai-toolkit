@@ -68,11 +68,12 @@ python test_scheduler_visual.py
 - ✅ 可视化验证 cosine 形状和 restart 点
 - ✅ 保存图片到 `scheduler_validation.png`
 
-**生成 4 个对比图：**
+**生成 5 个对比图：**
 1. restart_decay=1.0（无衰减）
 2. restart_decay=0.8（中等衰减）
 3. restart_decay=0.5（强衰减）
 4. T_mult=1（固定周期）
+5. warmup_steps=50 + restart_decay=0.8（带预热）
 
 ---
 
@@ -112,6 +113,10 @@ python tmp_sch.py
 ### 5. **与 PyTorch 兼容**
 - 当 `restart_decay=1.0` 时，应该与 `torch.optim.lr_scheduler.CosineAnnealingWarmRestarts` 完全一致
 
+### 6. **Warmup（可选）**
+- 如果设置了 `warmup_steps`，预热阶段的学习率应该线性增长到基础学习率
+- 预热结束后再进入 cosine 退火周期，重启时依旧遵循 `restart_decay`
+
 ---
 
 ## 📊 快速诊断
@@ -137,12 +142,15 @@ python tmp_sch.py
 在训练代码中使用：
 
 ```python
-from toolkit.scheduler import DecayingCosineAnnealingWarmRestarts
+from toolkit.scheduler import (
+    DecayingCosineAnnealingWarmRestarts,
+    get_lr_scheduler,
+)
 
 # 创建优化器
 optimizer = torch.optim.AdamW(model.parameters(), lr=1e-4)
 
-# 创建调度器
+# 方案 A：纯 decaying cosine with restarts
 scheduler = DecayingCosineAnnealingWarmRestarts(
     optimizer,
     T_0=1000,           # 第一个周期 1000 步
@@ -150,6 +158,18 @@ scheduler = DecayingCosineAnnealingWarmRestarts(
     eta_min=1e-7,       # 最小学习率
     restart_decay=0.8   # 每次 restart 衰减到 80%
 )
+
+# 方案 B：加入 warmup，只在开头预热一次
+# scheduler = get_lr_scheduler(
+#     "decaying_cosine_with_restarts",
+#     optimizer,
+#     T_0=1000,
+#     T_mult=2,
+#     eta_min=1e-7,
+#     restart_decay=0.8,
+#     warmup_steps=500,
+#     warmup_start_factor=0.1,
+# )
 
 # 训练循环
 for epoch in range(num_epochs):
@@ -186,11 +206,14 @@ for epoch in range(num_epochs):
 | `T_mult` | 周期倍增因子 | 1 或 2 |
 | `eta_min` | 最小学习率 | 1e-7 |
 | `restart_decay` | Restart 衰减因子 | 0.5-1.0 |
+| `warmup_steps` | 预热步数（可选） | 0-1000 |
+| `warmup_start_factor` | 预热起始系数（可选） | 0.0-0.1 |
 
 **建议：**
 - 对于长训练：`T_0=1000`, `T_mult=2`, `restart_decay=0.8`
 - 对于短训练：`T_0=100`, `T_mult=1`, `restart_decay=0.9`
 - 不想衰减：`restart_decay=1.0`（等同于 PyTorch 原生）
+- 需要更平滑的起步：加入 `warmup_steps`（例如 500）和 `warmup_start_factor=0.1`
 
 ---
 

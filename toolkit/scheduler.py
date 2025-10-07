@@ -6,6 +6,8 @@ from torch.optim.lr_scheduler import (
     _LRScheduler,
     _enable_get_lr_call,
     _warn_get_lr_called_within_step,
+    LinearLR,
+    SequentialLR,
 )
 
 
@@ -135,11 +137,29 @@ def get_lr_scheduler(
             optimizer, **kwargs
         )
     elif name == "decaying_cosine_with_restarts":
+        warmup_steps = kwargs.pop('warmup_steps', 0)
+        warmup_start_factor = kwargs.pop('warmup_start_factor', 0.0)
         if 'total_iters' in kwargs:
             kwargs['T_0'] = kwargs.pop('total_iters')
-        return DecayingCosineAnnealingWarmRestarts(
+
+        decaying_scheduler = DecayingCosineAnnealingWarmRestarts(
             optimizer, **kwargs
         )
+
+        if warmup_steps and warmup_steps > 0:
+            warmup_scheduler = LinearLR(
+                optimizer,
+                start_factor=warmup_start_factor,
+                end_factor=1.0,
+                total_iters=warmup_steps,
+            )
+            return SequentialLR(
+                optimizer,
+                schedulers=[warmup_scheduler, decaying_scheduler],
+                milestones=[warmup_steps],
+            )
+
+        return decaying_scheduler
     elif name == "step":
 
         return torch.optim.lr_scheduler.StepLR(

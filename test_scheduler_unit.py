@@ -4,7 +4,7 @@
 """
 import sys
 import math
-from toolkit.scheduler import DecayingCosineAnnealingWarmRestarts
+from toolkit.scheduler import DecayingCosineAnnealingWarmRestarts, get_lr_scheduler
 import torch
 
 # 创建一个简单的模型用于优化器
@@ -193,6 +193,41 @@ def test_multiple_restarts():
     print("✓ PASS")
     return True
 
+def test_warmup_integration():
+    """测试 warmup + decaying cosine 组合"""
+    print("测试 8: Warmup 组合...", end=" ")
+
+    initial_lr = 1e-4
+    warmup_steps = 8
+    warmup_start_factor = 0.1
+
+    opt = create_optimizer(initial_lr)
+    sch = get_lr_scheduler(
+        "decaying_cosine_with_restarts",
+        opt,
+        T_0=40,
+        T_mult=1,
+        eta_min=1e-7,
+        restart_decay=0.8,
+        warmup_steps=warmup_steps,
+        warmup_start_factor=warmup_start_factor,
+    )
+
+    warmup_lrs = []
+    for _ in range(warmup_steps):
+        sch.step()
+        warmup_lrs.append(opt.param_groups[0]['lr'])
+
+    assert warmup_lrs[0] < warmup_lrs[-1] <= initial_lr + 1e-12
+    assert all(warmup_lrs[i] <= warmup_lrs[i + 1] + 1e-12 for i in range(len(warmup_lrs) - 1))
+
+    sch.step()
+    lr_after_warmup = opt.param_groups[0]['lr']
+    assert abs(lr_after_warmup - initial_lr) < initial_lr * 0.01
+
+    print("✓ PASS")
+    return True
+
 def run_all_tests():
     """运行所有测试"""
     print("\n" + "=" * 60)
@@ -207,6 +242,7 @@ def run_all_tests():
         test_no_decay_compatibility,
         test_cosine_shape,
         test_multiple_restarts,
+        test_warmup_integration,
     ]
     
     passed = 0

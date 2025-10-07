@@ -3,7 +3,7 @@ DecayingCosineAnnealingWarmRestarts 快速验证脚本
 适用于 runpod 或任何环境
 """
 import math
-from toolkit.scheduler import DecayingCosineAnnealingWarmRestarts
+from toolkit.scheduler import DecayingCosineAnnealingWarmRestarts, get_lr_scheduler
 import torch
 
 # 创建简单的模型和优化器
@@ -136,10 +136,109 @@ def test_restart_decay():
             else:
                 print(f"  ✗ FAIL")
 
+def test_warmup_with_decaying():
+    """验证 warmup + decaying cosine with restarts 的组合"""
+    print("\n" + "=" * 70)
+    print("测试 4: Warmup + Decaying Cosine")
+    print("=" * 70)
+
+    initial_lr = 1e-4
+    T_0 = 50
+    eta_min = 1e-7
+    restart_decay = 0.8
+    warmup_steps = 10
+    warmup_start_factor = 0.1
+
+    opt = create_optimizer(initial_lr)
+    sch = get_lr_scheduler(
+        "decaying_cosine_with_restarts",
+        opt,
+        T_0=T_0,
+        T_mult=1,
+        eta_min=eta_min,
+        restart_decay=restart_decay,
+        warmup_steps=warmup_steps,
+        warmup_start_factor=warmup_start_factor,
+    )
+
+    total_steps = warmup_steps + 2 * T_0
+    lrs = []
+    for _ in range(total_steps):
+        sch.step()
+        lrs.append(opt.param_groups[0]['lr'])
+
+    warmup_phase = lrs[:warmup_steps]
+    cosine_phase = lrs[warmup_steps:]
+
+    print(f"\nWarmup 阶段 (0-{warmup_steps}):")
+    print(f"  起始 LR: {warmup_phase[0]:.6e}")
+    print(f"  结束 LR: {warmup_phase[-1]:.6e}")
+
+    is_warmup_increasing = all(
+        warmup_phase[i] <= warmup_phase[i + 1] + 1e-12
+        for i in range(len(warmup_phase) - 1)
+    )
+    warmup_reaches_target = abs(warmup_phase[-1] - initial_lr) < initial_lr * 0.01
+
+    print(f"  单调递增: {'✓' if is_warmup_increasing else '✗'}")
+    print(f"  收敛至初始 LR: {'✓' if warmup_reaches_target else '✗'}")
+
+    first_cycle = cosine_phase[:T_0]
+    second_cycle = cosine_phase[T_0:]
+
+    print(f"\nCosine 第一周期样本:")
+    print(f"  起点: {first_cycle[0]:.6e}")
+    print(f"  中点: {first_cycle[T_0 // 2]:.6e}")
+    print(f"  终点: {first_cycle[-1]:.6e}")
+
+    cosine_decreasing = all(first_cycle[i] >= first_cycle[i + 1] for i in range(len(first_cycle) - 1))
+    print(f"  单调递减: {'✓' if cosine_decreasing else '✗'}")
+
+    # 检测 restart 位置 (忽略 warmup 小幅上升)
+    jump_threshold = initial_lr * 0.2
+    jumps = [
+        idx for idx in range(1, len(lrs))
+        if lrs[idx] - lrs[idx - 1] > jump_threshold
+    ]
+
+    expected_first_restart = warmup_steps + T_0 - 1
+    expected_second_restart = expected_first_restart + T_0
+
+    print(f"\n检测到的 restart 点: {jumps}")
+    print(f"期望 restart 点: [{expected_first_restart}, {expected_second_restart}]")
+
+    restart_ok = (
+        len(jumps) >= 2
+        and jumps[0] == expected_first_restart
+        and jumps[1] == expected_second_restart
+    )
+
+    print(f"  Restart 位置正确: {'✓' if restart_ok else '✗'}")
+
+    # 复核 restart 学习率是否按 restart_decay 衰减
+    if restart_ok:
+        first_restart_lr = lrs[jumps[0]]
+        second_restart_lr = lrs[jumps[1]]
+        ratio = second_restart_lr / first_restart_lr
+        print(f"  Restart 学习率: {first_restart_lr:.6e} -> {second_restart_lr:.6e}")
+        print(f"  实际衰减: {ratio:.4f} (期望: {restart_decay})")
+        decay_ok = abs(ratio - restart_decay) < 0.01
+    else:
+        decay_ok = False
+
+    all_pass = is_warmup_increasing and warmup_reaches_target and cosine_decreasing and restart_ok and decay_ok
+
+    if all_pass:
+        print("\n✓ PASS - Warmup + Decaying Cosine 行为正确")
+        return True
+    else:
+        print("\n✗ FAIL - Warmup + Decaying Cosine 行为存在问题")
+        return False
+
 def test_cosine_shape():
     """测试 cosine 曲线形状"""
     print("\n" + "=" * 70)
-    print("测试 4: Cosine 曲线形状")
+    print("测试 5: Cosine 曲线形状")
     print("=" * 70)
     
     T_0 = 100
@@ -194,7 +293,13 @@ def main():
     except Exception as e:
         print(f"✗ 测试失败: {e}")
         results.append(("Restart衰减", False))
-    
+
+    try:
+        results.append(("Warmup组合", test_warmup_with_decaying()))
+    except Exception as e:
+        print(f"✗ 测试失败: {e}")
+        results.append(("Warmup组合", False))
+
     try:
         results.append(("Cosine形状", test_cosine_shape()))
     except Exception as e:

@@ -3,7 +3,7 @@
 包含可视化和详细的数值检查
 """
 import math
-from toolkit.scheduler import DecayingCosineAnnealingWarmRestarts
+from toolkit.scheduler import DecayingCosineAnnealingWarmRestarts, get_lr_scheduler
 import torch
 import matplotlib.pyplot as plt
 import numpy as np
@@ -131,30 +131,52 @@ def visualize_scheduler():
     print("测试 3: 可视化")
     print("=" * 60)
     
-    fig, axes = plt.subplots(2, 2, figsize=(15, 10))
-    fig.suptitle('DecayingCosineAnnealingWarmRestarts Scheduler 验证', fontsize=16)
-    
-    # 测试不同的 restart_decay 值
     configs = [
         {'T_0': 100, 'T_mult': 2, 'restart_decay': 1.0, 'title': 'restart_decay=1.0 (无衰减)'},
         {'T_0': 100, 'T_mult': 2, 'restart_decay': 0.8, 'title': 'restart_decay=0.8'},
         {'T_0': 100, 'T_mult': 2, 'restart_decay': 0.5, 'title': 'restart_decay=0.5 (强衰减)'},
         {'T_0': 100, 'T_mult': 1, 'restart_decay': 0.8, 'title': 'T_mult=1 (固定周期)'},
+        {
+            'T_0': 100,
+            'T_mult': 2,
+            'restart_decay': 0.8,
+            'warmup_steps': 50,
+            'warmup_start_factor': 0.1,
+            'title': 'warmup_steps=50 + restart_decay=0.8',
+        },
     ]
     
     initial_lr = 1e-4
     eta_min = 1e-7
     total_steps = 700
     
+    cols = 2
+    rows = math.ceil(len(configs) / cols)
+    fig, axes = plt.subplots(rows, cols, figsize=(15, 5 * rows))
+    axes = np.atleast_1d(axes).flatten()
+    fig.suptitle('DecayingCosineAnnealingWarmRestarts Scheduler 验证', fontsize=16)
+
     for idx, config in enumerate(configs):
-        ax = axes[idx // 2, idx % 2]
-        
+        ax = axes[idx]
+
         opt = create_optimizer(initial_lr)
-        sch = DecayingCosineAnnealingWarmRestarts(
-            opt, T_0=config['T_0'], T_mult=config['T_mult'], 
-            eta_min=eta_min, restart_decay=config['restart_decay']
-        )
-        
+        if config.get('warmup_steps'):
+            sch = get_lr_scheduler(
+                "decaying_cosine_with_restarts",
+                opt,
+                T_0=config['T_0'],
+                T_mult=config['T_mult'],
+                eta_min=eta_min,
+                restart_decay=config['restart_decay'],
+                warmup_steps=config['warmup_steps'],
+                warmup_start_factor=config.get('warmup_start_factor', 0.0),
+            )
+        else:
+            sch = DecayingCosineAnnealingWarmRestarts(
+                opt, T_0=config['T_0'], T_mult=config['T_mult'], 
+                eta_min=eta_min, restart_decay=config['restart_decay']
+            )
+
         lrs = []
         for i in range(total_steps):
             sch.step()
@@ -166,13 +188,28 @@ def visualize_scheduler():
         ax.set_title(config['title'])
         ax.grid(True, alpha=0.3)
         ax.set_yscale('log')
-        
-        # 标记 restart 点
-        jumps = [i for i in range(1, len(lrs)) if lrs[i] - lrs[i-1] > 1e-7]
+
+        warmup_steps = config.get('warmup_steps', 0)
+        if warmup_steps:
+            ax.axvspan(0, warmup_steps, color='orange', alpha=0.12, label='warmup')
+
+        jumps = []
+        for i in range(1, len(lrs)):
+            if warmup_steps and i <= warmup_steps:
+                continue
+            prev_lr = lrs[i - 1]
+            curr_lr = lrs[i]
+            if prev_lr <= 0:
+                continue
+            if curr_lr - prev_lr > 1e-6 and curr_lr / prev_lr > 1.5:
+                jumps.append(i)
         for jump in jumps:
             ax.axvline(x=jump, color='r', linestyle='--', alpha=0.5, linewidth=1)
-    
-    plt.tight_layout()
+
+    for idx in range(len(configs), len(axes)):
+        axes[idx].axis('off')
+
+    plt.tight_layout(rect=[0, 0, 1, 0.96])
     
     # 保存图片
     output_path = 'scheduler_validation.png'
