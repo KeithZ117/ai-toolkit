@@ -8,9 +8,16 @@ import torch
 import matplotlib.pyplot as plt
 import numpy as np
 
-class DummyOpt:
-    def __init__(self, lr):
-        self.param_groups = [{"lr": lr, "initial_lr": lr}]
+# 创建一个简单的模型用于优化器
+class DummyModel(torch.nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.param = torch.nn.Parameter(torch.tensor(0.0))
+
+def create_optimizer(lr):
+    """创建一个真实的优化器用于测试"""
+    model = DummyModel()
+    return torch.optim.SGD(model.parameters(), lr=lr)
 
 def test_scheduler_basic():
     """基础功能测试"""
@@ -26,7 +33,7 @@ def test_scheduler_basic():
     restart_decay = 0.8
     total_steps = 700
     
-    opt = DummyOpt(initial_lr)
+    opt = create_optimizer(initial_lr)
     sch = DecayingCosineAnnealingWarmRestarts(
         opt, T_0=T_0, T_mult=T_mult, eta_min=eta_min, restart_decay=restart_decay
     )
@@ -84,7 +91,7 @@ def test_scheduler_edge_cases():
     
     # 测试 restart_decay = 1.0 (不衰减)
     print("\n2.1: restart_decay=1.0 (不衰减)")
-    opt = DummyOpt(1e-4)
+    opt = create_optimizer(1e-4)
     sch = DecayingCosineAnnealingWarmRestarts(opt, T_0=50, T_mult=1, eta_min=1e-7, restart_decay=1.0)
     lrs = []
     for i in range(200):
@@ -103,7 +110,7 @@ def test_scheduler_edge_cases():
     
     # 测试 T_mult = 1 (固定周期)
     print("\n2.2: T_mult=1 (固定周期)")
-    opt = DummyOpt(1e-4)
+    opt = create_optimizer(1e-4)
     sch = DecayingCosineAnnealingWarmRestarts(opt, T_0=50, T_mult=1, eta_min=1e-7, restart_decay=0.9)
     lrs = []
     for i in range(200):
@@ -142,7 +149,7 @@ def visualize_scheduler():
     for idx, config in enumerate(configs):
         ax = axes[idx // 2, idx % 2]
         
-        opt = DummyOpt(initial_lr)
+        opt = create_optimizer(initial_lr)
         sch = DecayingCosineAnnealingWarmRestarts(
             opt, T_0=config['T_0'], T_mult=config['T_mult'], 
             eta_min=eta_min, restart_decay=config['restart_decay']
@@ -191,7 +198,7 @@ def test_comparison_with_pytorch():
     total_steps = 300
     
     # PyTorch 原生调度器
-    opt1 = DummyOpt(initial_lr)
+    opt1 = create_optimizer(initial_lr)
     sch1 = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(
         opt1, T_0=T_0, T_mult=T_mult, eta_min=eta_min
     )
@@ -201,7 +208,7 @@ def test_comparison_with_pytorch():
         lrs_pytorch.append(opt1.param_groups[0]['lr'])
     
     # 我们的调度器 (restart_decay=1.0 时应该一样)
-    opt2 = DummyOpt(initial_lr)
+    opt2 = create_optimizer(initial_lr)
     sch2 = DecayingCosineAnnealingWarmRestarts(
         opt2, T_0=T_0, T_mult=T_mult, eta_min=eta_min, restart_decay=1.0
     )

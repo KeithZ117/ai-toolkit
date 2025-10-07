@@ -95,7 +95,7 @@ cd "$INSTALL_DIR/datasets"
 
 # 从 Google Drive 下载
 echo "   正在从 Google Drive 下载文件..."
-gdown "https://drive.google.com/uc?id=1BbEd1dHv47uTTtX4hnHv2b8wPLFnV_yg" -O dataset.zip
+gdown "https://drive.google.com/uc?id=1Rbc2J-erh8oQov608NesKQoLgktvcr1P" -O dataset.zip
 
 if [ -f "dataset.zip" ]; then
     echo "   ✓ 下载完成"
