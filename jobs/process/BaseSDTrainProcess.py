@@ -1970,8 +1970,12 @@ class BaseSDTrainProcess(BaseTrainProcess):
 
         lr_scheduler_params = self.train_config.lr_scheduler_params
 
-        # make sure it had bare minimum
-        if 'max_iterations' not in lr_scheduler_params:
+        # Ensure a default when user didn't specify cycle length.
+        # Previously this incorrectly checked for 'max_iterations' and overwrote
+        # a provided 'total_iters' with the global step count, eliminating
+        # intermediate restarts. The correct behavior is: only set
+        # 'total_iters' when the user did not provide it.
+        if 'total_iters' not in lr_scheduler_params:
             lr_scheduler_params['total_iters'] = self.train_config.steps
 
         lr_scheduler = get_lr_scheduler(
